@@ -338,7 +338,7 @@ export default class GpuMenuComponent {
         grid.addToGrid(activityButton);
 
         const activityTitle = new St.Label({
-            text: _('Activity'),
+            text: _('Usage'),
             styleClass: 'astra-monitor-menu-header-small-centered',
         });
         activityGrid.addToGrid(activityTitle);
@@ -1454,7 +1454,7 @@ export default class GpuMenuComponent {
 
     private createActivityPopup(sourceActor: St.Widget, _gpuInfo: GpuInfo): ActivityPopup {
         const popup = new MenuBase(sourceActor, 0.05) as ActivityPopup;
-        popup.addMenuSection(_('Activity'));
+        popup.addMenuSection(_('Usage'));
         popup.pipes = [];
 
         for(let i = 0; i < 20; i++) {

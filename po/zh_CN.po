@@ -2218,8 +2218,8 @@ msgid "No Connected Display"
 msgstr "无连接显示器"
 
 #: src/gpu/gpuMenuComponent.js:190 src/gpu/gpuMenuComponent.js:1121
-msgid "Activity"
-msgstr "活动"
+msgid "Usage"
+msgstr "使用率"
 
 #: src/gpu/gpuMenuComponent.js:240 src/gpu/gpuMenuComponent.js:1172
 msgid "VRAM"

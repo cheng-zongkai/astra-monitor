@@ -2210,7 +2210,7 @@ msgid "No Connected Display"
 msgstr ""
 
 #: src/gpu/gpuMenuComponent.js:190 src/gpu/gpuMenuComponent.js:1121
-msgid "Activity"
+msgid "Usage"
 msgstr ""
 
 #: src/gpu/gpuMenuComponent.js:240 src/gpu/gpuMenuComponent.js:1172
