@@ -23,6 +23,7 @@ import GLib from 'gi://GLib';
 import Config from '../config.js';
 import Utils from '../utils/utils.js';
 import Monitor from '../monitor.js';
+import { CpuHardwareReader } from '../utils/hardwareReadings.js';
 
 import TopProcessesCache from '../utils/topProcessesCache.js';
 import CancellableTaskManager from '../utils/cancellableTaskManager.js';
@@ -76,6 +77,15 @@ export default class ProcessorMonitor extends Monitor {
     private updateCoresUsageTask: CancellableTaskManager<boolean>;
     private updateCoresFrequencyTask: CancellableTaskManager<boolean>;
     private updateTopProcessesTask: CancellableTaskManager<boolean>;
+    private updateHardwareTask = new CancellableTaskManager<boolean>();
+    private hardwareReader = new CpuHardwareReader(
+        {
+            read: path => Utils.readFileAsync(path, true),
+            list: async path => (await Utils.listDirAsync(path)).map(entry => entry.name),
+        },
+        () => GLib.get_monotonic_time() / 1000000
+    );
+
     private updateLoadAvgTask: CancellableTaskManager<boolean>;
 
     private previousCpuUsage!: ProcessorUsage;
@@ -145,6 +155,8 @@ export default class ProcessorMonitor extends Monitor {
         this.updateCoresFrequencyTask?.cancel();
         this.updateTopProcessesTask?.cancel();
         this.updateLoadAvgTask?.cancel();
+        this.updateHardwareTask.cancel();
+        this.hardwareReader.reset();
     }
 
     override start() {
@@ -203,6 +215,10 @@ export default class ProcessorMonitor extends Monitor {
     }
 
     stopListeningFor(code: string) {
+        if(code === 'cpuHardware') {
+            this.updateHardwareTask.cancel();
+            this.hardwareReader.reset();
+        }
         if(code === 'topProcesses') {
             this.previousPidsCpuTime = new Map();
         }
@@ -225,6 +241,9 @@ export default class ProcessorMonitor extends Monitor {
                 this.runUpdate('topProcesses', false, procStat);
             else this.topProcessesCache.updateNotSeen([]);
 
+            if(this.isListeningFor('cpuHardware') && !this.updateHardwareTask.isRunning)
+                this.runUpdate('cpuHardware');
+
             if(this.isListeningFor('loadAverage')) {
                 const procLoadAvgStore = new PromiseValueHolderStore<string[]>(
                     this.getProcLoadAvgAsync.bind(this)
@@ -236,6 +255,8 @@ export default class ProcessorMonitor extends Monitor {
     }
 
     override requestUpdate(key: string) {
+        if(key === 'cpuHardware' && !this.updateHardwareTask.isRunning)
+            this.runUpdate('cpuHardware');
         if(key === 'cpuUsage') {
             if(!this.updateCpuUsageTask.isRunning) {
                 const procStatStore = new PromiseValueHolderStore<string[]>(
@@ -276,6 +297,21 @@ export default class ProcessorMonitor extends Monitor {
     }
 
     runUpdate(key: string, ...params: any[]) {
+        if(key === 'cpuHardware') {
+            this.runTask({
+                key,
+                task: this.updateHardwareTask,
+                run: async () => {
+                    const cancellable = this.updateHardwareTask.cancellable;
+                    const readings = await this.hardwareReader.read();
+                    if(cancellable.is_cancelled()) return false;
+                    this.setUsageValue('cpuHardware', readings);
+                    return true;
+                },
+                callback: this.notify.bind(this, 'cpuHardware'),
+            });
+            return;
+        }
         if(key === 'cpuUsage') {
             let run;
             if(this.dataSources.cpuUsage === 'GTop')

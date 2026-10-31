@@ -1,5 +1,20 @@
 # Astra Monitor
 
+This fork adds hardware readings to the processor menu:
+
+- CPU temperature, with the selected sensor shown in the CPU information popup.
+- CPU package power in watts, calculated from consecutive RAPL energy samples.
+- GPU activity, temperature and power, including an AMD sysfs fallback when `amdgpu_top` is absent.
+- The processor menu's GPU section remains available when the separate GPU header is enabled.
+
+Enable **Processors → Menu → GPU → Show GPU info**, and enable monitoring for the desired card in **GPU → General**. Temperature units follow the existing Sensors preference. These readings work with the Sensors header hidden.
+
+CPU temperature prefers Intel package sensors or AMD `Tdie`, then `Tctl`, with core sensors and explicitly CPU-labelled thermal zones as fallbacks. The hottest package is shown on multi-socket systems. The CPU information popup identifies the source, so an AMD control temperature is not silently presented as `Tdie`.
+
+CPU power is package power (including other components in the CPU package), not a TDP estimate. It needs two samples and read access to `/sys/class/powercap/*/energy_uj`. Some distributions restrict these files to root; in that case this extension displays **N/A**. It does not change system permissions or run privileged commands. A missing sensor, unreadable file or unsupported device also displays **N/A**, rather than a fabricated zero. On AMD APUs, the driver's power reading may include the CPU/SoC.
+
+Build and test this fork with `npm install` followed by `npm test` (Node.js 18 or newer). TypeScript and the GNOME type declarations are pinned to a compatible generation because mixing the upstream dependency ranges currently breaks compilation. The existing build scripts can use the local compiler by adding `node_modules/.bin` to `PATH`.
+
 ## Table of Contents
 
 -   [Overview](#overview)
@@ -242,13 +257,11 @@ GPU monitoring is supported for AMD, NVIDIA and Intel GPUs.
 
 #### AMD GPUs
 
-For users with AMD GPUs (Discrete or Integrated), [amdgpu_top](https://github.com/Umio-Yasuno/amdgpu_top) is required to enable monitoring.
+AMD GPU activity, VRAM, temperature and power can be read directly from the kernel sysfs interfaces without extra tools. [amdgpu_top](https://github.com/Umio-Yasuno/amdgpu_top) remains optional for detailed engine statistics and per-process monitoring. When installed, the existing `amdgpu_top` backend is used.
 
 ##### Ubuntu / Debian
 
-```bash
-sudo apt install amdgpu_top
-```
+Package availability depends on the distribution release. If `amdgpu_top` is absent from your repositories, follow the [upstream installation instructions](https://github.com/Umio-Yasuno/amdgpu_top#installation). The basic metrics in this fork do not require it.
 
 ##### Fedora
 

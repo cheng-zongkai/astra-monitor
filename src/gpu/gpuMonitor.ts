@@ -23,6 +23,7 @@ import GLib from 'gi://GLib';
 import Config from '../config.js';
 import Utils, { GpuInfo } from '../utils/utils.js';
 import Monitor from '../monitor.js';
+import { readAmdSysfs } from '../utils/hardwareReadings.js';
 
 import ContinuousTaskManager, {
     ContinuousTaskManagerData,
@@ -382,6 +383,8 @@ type IntelDevice = {
 export default class GpuMonitor extends Monitor {
     private status = false;
     private updateAmdGpuTask: ContinuousTaskManager;
+    private updateAmdSysfsTask = new CancellableTaskManager<boolean>();
+    private useAmdSysfs = false;
     private updateNvidiaGpuTask: ContinuousTaskManager;
     private updateIntelGpuTasks: Map<string, ContinuousTaskManager> = new Map();
     private updateIntelGpuTask: CancellableTaskManager<boolean>;
@@ -483,6 +486,7 @@ export default class GpuMonitor extends Monitor {
 
     reset() {
         this.updateDisplaysTask?.cancel();
+        this.updateAmdSysfsTask.cancel();
         this.updateIntelGpuTask?.cancel();
 
         this.infoPipesCaches.clear();
@@ -550,7 +554,12 @@ export default class GpuMonitor extends Monitor {
             }
         }
 
-        if(hasAMD && (await Utils.hasAmdGpuTopAsync()) && !this.updateAmdGpuTask.isRunning) {
+        const hasAmdGpuTop = hasAMD && (await Utils.hasAmdGpuTopAsync());
+        if(this.isGpuTaskStale(generation)) return;
+        this.useAmdSysfs = hasAMD && !hasAmdGpuTop;
+        if(this.useAmdSysfs) this.runUpdate('amdSysfs');
+
+        if(hasAMD && hasAmdGpuTop && !this.updateAmdGpuTask.isRunning) {
             // Max 2 updates per second
             const timer = Math.round(Math.max(500, this.updateFrequency * 1000));
             const path = await Utils.getAmdGpuTopPathAsync();
@@ -560,6 +569,7 @@ export default class GpuMonitor extends Monitor {
                 return;
             }
 
+            if(this.isGpuTaskStale(generation)) return;
             this.updateAmdGpuTask.start(`${path}amdgpu_top -J -u 5 -s ${timer} -n 0`, {
                 flush: { always: true },
             });
@@ -587,6 +597,7 @@ export default class GpuMonitor extends Monitor {
                 Utils.error('Failed to find nvidia-smi');
                 return;
             }
+            if(this.isGpuTaskStale(generation)) return;
             this.updateNvidiaGpuTask.start(`${path}nvidia-smi -q -x -lms ${timer}`, {
                 flush: { trigger: '</nvidia_smi_log>' },
             });
@@ -603,6 +614,8 @@ export default class GpuMonitor extends Monitor {
 
     private stopGpuTask() {
         this.gpuTaskGeneration++;
+        this.useAmdSysfs = false;
+        this.updateAmdSysfsTask.cancel();
 
         if(this.updateAmdGpuTask?.isRunning) this.updateAmdGpuTask.stop();
         if(this.updateNvidiaGpuTask?.isRunning) this.updateNvidiaGpuTask.stop();
@@ -621,6 +634,8 @@ export default class GpuMonitor extends Monitor {
             this.runUpdate('displays');
         }
 
+        if(this.useAmdSysfs && !this.updateAmdSysfsTask.isRunning) this.runUpdate('amdSysfs');
+
         if(this.intelGpus.size > 0 && !this.updateIntelGpuTask.isRunning) {
             this.runUpdate('intelGpu');
         }
@@ -638,6 +653,15 @@ export default class GpuMonitor extends Monitor {
     }
 
     runUpdate(key: string, ...params: any[]) {
+        if(key === 'amdSysfs') {
+            this.runTask({
+                key,
+                task: this.updateAmdSysfsTask,
+                run: this.updateAmdSysfs.bind(this),
+                callback: () => {},
+            });
+            return;
+        }
         if(key === 'intelGpu') {
             this.runTask({
                 key,
@@ -657,6 +681,65 @@ export default class GpuMonitor extends Monitor {
             });
             return;
         }
+    }
+
+    private async updateAmdSysfs(): Promise<boolean> {
+        const cancellable = this.updateAmdSysfsTask.cancellable;
+        const generation = this.gpuTaskGeneration;
+        const gpus = new Map<string, GenericGpuInfo>();
+        await Promise.all(
+            (this.monitoredGPUs ?? [])
+                .filter(gpu => Utils.isAmdGpu(gpu))
+                .map(async info => {
+                    const id = Utils.getGpuUUID(info);
+                    const data = await readAmdSysfs(
+                        {
+                            read: path => Utils.readFileAsync(path, true),
+                            list: async path =>
+                                (await Utils.listDirAsync(path)).map(entry => entry.name),
+                        },
+                        id
+                    );
+                    const sensors = data.sensors.map(sensor => ({
+                        ...sensor,
+                        priority: GpuSensorPriority.HIGH,
+                    }));
+                    const gpu: GenericGpuInfo = {
+                        id,
+                        family: 'AMD',
+                        info: { pipes: [] },
+                        activity: {
+                            GFX: data.activity,
+                            pipes:
+                                data.activity === undefined
+                                    ? []
+                                    : [{ name: 'GFX', percent: data.activity }],
+                        },
+                        vram: { used: data.vramUsed, total: data.vramTotal, pipes: [] },
+                        topProcesses: [],
+                        sensors: {
+                            list: sensors,
+                            categories: [
+                                {
+                                    name: 'Temperature',
+                                    sensors: sensors.filter(sensor => sensor.unit === '°C'),
+                                },
+                                {
+                                    name: 'Power',
+                                    sensors: sensors.filter(sensor => sensor.unit === 'W'),
+                                },
+                            ].filter(category => category.sensors.length > 0),
+                        },
+                        raw: undefined,
+                    };
+                    if(data.vramUsed !== undefined && data.vramTotal !== undefined)
+                        gpu.vram.percent = (data.vramUsed / data.vramTotal) * 100;
+                    gpus.set(id, gpu);
+                })
+        );
+        if(cancellable.is_cancelled() || this.isGpuTaskStale(generation)) return false;
+        if(gpus.size) this.pushGpuUpdate(gpus);
+        return true;
     }
 
     static nvidiaToGenericField(

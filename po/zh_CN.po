@@ -2420,3 +2420,15 @@ msgstr "概览"
 #~ msgstr ""
 #~ "实验性 posix_spawn() 子进程监控。\n"
 #~ "这可能有助于解决 UI 性能问题。"
+
+msgid "Temperature:"
+msgstr "温度："
+
+msgid "Package power:"
+msgstr "封装功耗："
+
+msgid "Power:"
+msgstr "功耗："
+
+msgid "N/A"
+msgstr "不可用"

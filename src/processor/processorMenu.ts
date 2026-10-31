@@ -33,6 +33,7 @@ import Config from '../config.js';
 import ProcessorGraph from './processorGraph.js';
 import ProcessorBars from './processorBars.js';
 import ProcessorMonitor, { CpuInfo } from './processorMonitor.js';
+import { CpuReadings } from '../utils/hardwareReadings.js';
 import GpuMenuComponent from '../gpu/gpuMenuComponent.js';
 
 type CpuInfoPopup = MenuBase & {
@@ -87,6 +88,10 @@ export default class ProcessorMenu extends MenuBase {
     /*private cpuSectionLabel!: St.Label;*/
     private cpuInfoPopup!: CpuInfoPopup;
 
+    private cpuTemperature!: St.Label;
+    private cpuPower!: St.Label;
+    private cpuHardwareInfo!: St.Label;
+
     private cpuTotalPerc!: St.Label;
     private cpuUserPerc!: St.Label;
     private cpuSystemPerc!: St.Label;
@@ -114,6 +119,7 @@ export default class ProcessorMenu extends MenuBase {
         /*this.cpuSectionLabel = */ this.addMenuSection(_('CPU'));
         this.addName();
         this.addPercentage();
+        this.addHardwareReadings();
         this.addHistoryGraph();
         this.addTopProcesses();
         this.addLoadAverage();
@@ -210,6 +216,13 @@ export default class ProcessorMenu extends MenuBase {
             2
         );
 
+        this.cpuInfoPopup.addToMenu(
+            new St.Label({ text: _('Temperature:'), styleClass: 'astra-monitor-menu-sub-key' })
+        );
+        this.cpuHardwareInfo = new St.Label({ text: _('N/A') });
+        this.cpuInfoPopup.addToMenu(this.cpuHardwareInfo);
+        this.update('cpuHardware');
+
         let reference: { value: St.Label; original: any } | null = null;
 
         const numKeys = Object.keys(cpuInfo).length;
@@ -285,6 +298,30 @@ export default class ProcessorMenu extends MenuBase {
                 i++;
             } while(value.length);
         }
+    }
+
+    addHardwareReadings() {
+        const grid = new Grid({ styleClass: 'astra-monitor-menu-subgrid' });
+        for(const key of ['temperature', 'power']) {
+            grid.addToGrid(
+                new St.Label({
+                    text: key === 'temperature' ? _('Temperature:') : _('Package power:'),
+                    styleClass: 'astra-monitor-menu-label',
+                })
+            );
+            const value = new St.Label({
+                text: _('N/A'),
+                styleClass: 'astra-monitor-menu-value',
+                xExpand: true,
+            });
+            grid.addToGrid(MenuBase.createLoadingValue(value));
+            if(key === 'temperature') this.cpuTemperature = value;
+            else this.cpuPower = value;
+        }
+        this.addToMenu(grid, 2);
+        Config.connect(this, 'changed::sensors-temperature-unit', () =>
+            this.update('cpuHardware', true)
+        );
     }
 
     addPercentage() {
@@ -840,9 +877,7 @@ export default class ProcessorMenu extends MenuBase {
         const updateGpuVisibility = () => {
             const wasVisible = this.gpuSection.container.visible;
             const processorShow = Config.get_boolean('processor-gpu');
-            const gpuHeaderShow = Config.get_boolean('gpu-header-show');
-
-            if(gpuHeaderShow || !processorShow) {
+            if(!processorShow) {
                 label?.hide();
                 this.gpuSection.container.hide();
             } else {
@@ -851,13 +886,12 @@ export default class ProcessorMenu extends MenuBase {
             }
 
             if(this.isOpen && wasVisible !== this.gpuSection.container.visible) {
-                if(this.gpuSection.container.visible) this.gpuSection.onOpen();
-                else this.gpuSection.onClose();
+                if(this.gpuSection.container.visible) this.openGpuSection();
+                else this.closeGpuSection();
             }
         };
 
         Config.connect(this.gpuSection, 'changed::processor-gpu', updateGpuVisibility.bind(this));
-        Config.connect(this.gpuSection, 'changed::gpu-header-show', updateGpuVisibility.bind(this));
         updateGpuVisibility();
     }
 
@@ -873,10 +907,32 @@ export default class ProcessorMenu extends MenuBase {
         this.menuUptimeTimer = null;
     }
 
+    private openGpuSection() {
+        Utils.gpuMonitor.listen(this, 'gpuUpdateProcessor', () => {});
+        Utils.gpuMonitor.listen(this, 'gpuUpdate', this.update.bind(this, 'gpuUpdate', false));
+        this.gpuSection.onOpen();
+    }
+
+    private closeGpuSection() {
+        this.gpuSection?.onClose();
+        Utils.gpuMonitor?.unlisten(this, 'gpuUpdate');
+        Utils.gpuMonitor?.unlisten(this, 'gpuUpdateProcessor');
+    }
+
     async onOpen() {
-        if(this.gpuSection?.container.visible) {
-            this.gpuSection.onOpen();
-        }
+        if(this.gpuSection?.container.visible) this.openGpuSection();
+        this.updateFreshOrShowLoading(Utils.processorMonitor, 'cpuHardware', 'cpuHardware', () => {
+            this.setLoading(this.cpuTemperature, true);
+            this.setLoading(this.cpuPower, true);
+        });
+        Utils.processorMonitor.listen(
+            this,
+            'cpuHardware',
+            this.update.bind(this, 'cpuHardware', false)
+        );
+        this.scheduleOpenUpdate('cpuHardware', Utils.processorMonitor, () => {
+            Utils.processorMonitor.requestUpdate('cpuHardware');
+        });
 
         //Update cpu usage percentage label
         this.updateFreshOrShowLoading(
@@ -939,13 +995,6 @@ export default class ProcessorMenu extends MenuBase {
                 /* empty */
             }
         });
-
-        const processorGpuShow = Config.get_boolean('processor-gpu');
-        const gpuHeaderShow = Config.get_boolean('gpu-header-show');
-        if(processorGpuShow && !gpuHeaderShow) {
-            Utils.gpuMonitor?.listen(this, 'gpuUpdateProcessor', () => {});
-            Utils.gpuMonitor?.listen(this, 'gpuUpdate', this.update.bind(this, 'gpuUpdate', false));
-        }
     }
 
     onClose() {
@@ -953,7 +1002,8 @@ export default class ProcessorMenu extends MenuBase {
         this.menuUptimeTimer?.stop();
         this.menuUptimeTimer = null;
 
-        this.gpuSection?.onClose();
+        this.closeGpuSection();
+        Utils.processorMonitor.unlisten(this, 'cpuHardware');
 
         if(this.lazyCoresPopupTimer != null) {
             GLib.source_remove(this.lazyCoresPopupTimer);
@@ -965,9 +1015,6 @@ export default class ProcessorMenu extends MenuBase {
         Utils.processorMonitor.unlisten(this.graph, 'cpuUsage');
         Utils.processorMonitor.unlisten(this, 'topProcesses');
         Utils.processorMonitor.unlisten(this, 'loadAverage');
-
-        Utils.gpuMonitor?.unlisten(this, 'gpuUpdate');
-        Utils.gpuMonitor?.unlisten(this, 'gpuUpdateProcessor');
     }
 
     private showCpuUsageLoading() {
@@ -1025,6 +1072,29 @@ export default class ProcessorMenu extends MenuBase {
             return;
         }
 
+        if(code === 'cpuHardware') {
+            const data = Utils.processorMonitor.getCurrentValue(
+                'cpuHardware'
+            ) as CpuReadings | null;
+            const temperature = data?.temperature;
+            const unit =
+                Config.get_string('sensors-temperature-unit') === 'fahrenheit' ? '°F' : '°C';
+            const value = temperature
+                ? unit === '°F'
+                    ? Utils.celsiusToFahrenheit(temperature.value)
+                    : temperature.value
+                : null;
+            const text = value === null ? _('N/A') : value.toFixed(1) + ' ' + unit;
+            if(this.cpuTemperature) {
+                this.setLoading(this.cpuTemperature, false);
+                this.cpuTemperature.text = text;
+                this.setLoading(this.cpuPower, false);
+                this.cpuPower.text = data?.power == null ? _('N/A') : data.power.toFixed(1) + ' W';
+            }
+            if(this.cpuHardwareInfo)
+                this.cpuHardwareInfo.text = temperature ? `${text} (${temperature.source})` : text;
+            return;
+        }
         if(code === 'cpuUsage') {
             const cpuUsage = Utils.processorMonitor.getCurrentValue('cpuUsage');
 

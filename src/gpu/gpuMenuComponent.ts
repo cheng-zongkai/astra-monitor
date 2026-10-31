@@ -25,6 +25,7 @@ import GLib from 'gi://GLib';
 import { gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 
 import MenuBase from '../menu.js';
+import { gpuSummarySensors } from '../utils/hardwareReadings.js';
 import Utils, { GpuInfo } from '../utils/utils.js';
 import AnimationUtils from '../utils/animationUtils.js';
 import Grid from '../grid.js';
@@ -360,7 +361,7 @@ export default class GpuMenuComponent {
             barGrid.addToGrid(bar);
 
             const barUsagePercLabel = new St.Label({
-                text: '0%',
+                text: _('N/A'),
                 style: 'margin-left:0.3em;margin-right:0.3em;padding-top:2px;width:2.8em;font-size:0.8em;text-align:right;',
                 yAlign: Clutter.ActorAlign.END,
             });
@@ -421,7 +422,7 @@ export default class GpuMenuComponent {
             barGrid.addToGrid(bar);
 
             const barUsagePercLabel = new St.Label({
-                text: '0%',
+                text: _('N/A'),
                 style: 'margin-left:0.3em;margin-right:0.3em;padding-top:2px;width:2.8em;font-size:0.8em;text-align:right;',
                 yAlign: Clutter.ActorAlign.END,
             });
@@ -605,7 +606,7 @@ export default class GpuMenuComponent {
 
             const sensors: Sensor[] = [];
 
-            const numSensors = this.compact ? 1 : 3;
+            const numSensors = this.compact ? 2 : 3;
             for(let i = 0; i < numSensors; i++) {
                 const label = new St.Label({
                     text: '-',
@@ -1893,11 +1894,14 @@ export default class GpuMenuComponent {
             if(
                 section.activity.gfxBar &&
                 gpuData.activity.GFX !== undefined &&
-                !Number.isNaN(gpuData.activity.GFX)
+                Number.isFinite(gpuData.activity.GFX)
             ) {
                 section.activity.gfxBar.setUsage([{ percent: gpuData.activity.GFX }]);
                 if(section.activity.gfxBarLabel)
                     section.activity.gfxBarLabel.text = gpuData.activity.GFX.toFixed(0) + '%';
+            } else {
+                section.activity.gfxBar?.setUsage([]);
+                if(section.activity.gfxBarLabel) section.activity.gfxBarLabel.text = _('N/A');
             }
 
             if(this.topProcesses) {
@@ -1942,7 +1946,7 @@ export default class GpuMenuComponent {
             }
 
             if(this.mainSensors) {
-                const numSensors = this.compact ? 1 : 3;
+                const numSensors = this.compact ? 2 : 3;
                 for(let index = 0; index < numSensors; index++) {
                     const sensor = this.mainSensors.get(section.uuid)?.[index];
                     if(!sensor) continue;
@@ -1952,15 +1956,25 @@ export default class GpuMenuComponent {
 
                     if(!gpuData.sensors.list) continue;
 
-                    const sensorData = gpuData.sensors.list[index];
+                    const sensorData = this.compact
+                        ? gpuSummarySensors(gpuData.sensors.list)[index]
+                        : gpuData.sensors.list[index];
+                    if(this.compact) {
+                        sensor.label.text = index === 0 ? _('Temperature:') : _('Power:');
+                        sensor.value.text = _('N/A');
+                    }
                     if(!sensorData) continue;
 
-                    sensor.label.text = sensorData.name;
+                    if(!this.compact) sensor.label.text = sensorData.name;
 
                     let unit = sensorData.unit;
                     if(unit === 'C') unit = '°C';
 
                     let value = sensorData.value;
+                    if(this.compact && unit === 'mW' && typeof value === 'number') {
+                        value /= 1000;
+                        unit = 'W';
+                    }
                     if(
                         unit === '°C' &&
                         typeof value === 'number' &&
@@ -1971,7 +1985,9 @@ export default class GpuMenuComponent {
                     }
 
                     unit = unit === '' ? '' : ' ' + unit;
-                    sensor.value.text = value + unit;
+                    sensor.value.text =
+                        (this.compact && typeof value === 'number' ? value.toFixed(1) : value) +
+                        unit;
                 }
             }
 

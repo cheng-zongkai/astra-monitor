@@ -439,7 +439,6 @@ export default class Processors {
         PrefsUtils.addSwitchRow(
             {
                 title: _('Show GPU info'),
-                subtitle: _('Only works if GPU header is disabled.'),
                 tabs: 1,
             },
             'processor-gpu',

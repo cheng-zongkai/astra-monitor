@@ -2405,3 +2405,15 @@ msgstr ""
 #: prefs.js:172
 msgid "Overview"
 msgstr ""
+
+msgid "Temperature:"
+msgstr ""
+
+msgid "Package power:"
+msgstr ""
+
+msgid "Power:"
+msgstr ""
+
+msgid "N/A"
+msgstr ""

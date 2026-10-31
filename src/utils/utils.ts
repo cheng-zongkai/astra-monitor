@@ -791,7 +791,7 @@ export default class Utils {
     }
 
     static canMonitorGpu(gpu: GpuInfo): boolean {
-        if(Utils.isAmdGpu(gpu)) return Utils.hasAmdGpuTop();
+        if(Utils.isAmdGpu(gpu)) return true; // Basic metrics are available through sysfs.
         if(Utils.isNvidiaGpu(gpu)) return Utils.hasNvidiaSmi();
         // Intel GPUs always have a sysfs fallback: intel_gpu_top only adds activity and processes
         if(Utils.isIntelGpu(gpu)) return true;
