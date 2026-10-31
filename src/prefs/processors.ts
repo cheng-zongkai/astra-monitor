@@ -445,6 +445,12 @@ export default class Processors {
             gpuSection
         );
 
+        PrefsUtils.addSwitchRow(
+            { title: _('Show GPU Top Processes'), tabs: 1 },
+            'gpu-menu-top-processes',
+            gpuSection
+        );
+
         menuPage.add(group);
         return menuPage;
     }

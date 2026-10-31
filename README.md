@@ -7,7 +7,7 @@ This fork adds hardware readings to the processor menu:
 - GPU activity, temperature and power, including an AMD sysfs fallback when `amdgpu_top` is absent.
 - The processor menu's GPU section remains available when the separate GPU header is enabled.
 
-Enable **Processors → Menu → GPU → Show GPU info**, and enable monitoring for the desired card in **GPU → General**. Temperature units follow the existing Sensors preference. These readings work with the Sensors header hidden.
+Enable **Processors → Menu → GPU → Show GPU info**, and enable monitoring for the desired card in **GPU → General**. Temperature units follow the existing Sensors preference. These readings work with the Sensors header hidden. GPU Top Processes is hidden by default; enable **Show GPU Top Processes** in either **GPU → Menu** or **Processors → Menu → GPU** to display it. The AMD sysfs fallback does not provide per-process data.
 
 CPU temperature prefers Intel package sensors or AMD `Tdie`, then `Tctl`, with core sensors and explicitly CPU-labelled thermal zones as fallbacks. The hottest package is shown on multi-socket systems. The CPU information popup identifies the source, so an AMD control temperature is not silently presented as `Tdie`.
 

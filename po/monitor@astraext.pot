@@ -2417,3 +2417,9 @@ msgstr ""
 
 msgid "N/A"
 msgstr ""
+
+msgid "Show GPU Top Processes"
+msgstr ""
+
+msgid "GPU monitoring is disabled.\nEnable it in GPU preferences."
+msgstr ""

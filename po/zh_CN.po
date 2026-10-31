@@ -2432,3 +2432,9 @@ msgstr "功耗："
 
 msgid "N/A"
 msgstr "不可用"
+
+msgid "Show GPU Top Processes"
+msgstr "显示 GPU 进程"
+
+msgid "GPU monitoring is disabled.\nEnable it in GPU preferences."
+msgstr "尚未启用 GPU 监控。\n请在 GPU 设置中开启。"

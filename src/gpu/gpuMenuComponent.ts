@@ -152,7 +152,6 @@ type Section = {
 
 export default class GpuMenuComponent {
     private shown: boolean = false;
-    private lastData: Map<string, GenericGpuInfo> | undefined;
 
     private parent: InstanceType<typeof MenuBase>;
     private title: St.Label | undefined;
@@ -160,6 +159,7 @@ export default class GpuMenuComponent {
 
     public container!: InstanceType<typeof Grid>;
     private noGPULabel: St.Label | undefined;
+    private monitoringDisabledLabel?: St.Label;
     private loadingIcon: St.Icon | undefined;
     private displayUpdateTimer: number = 0;
 
@@ -202,11 +202,18 @@ export default class GpuMenuComponent {
         this.loadingIcon.set_pivot_point(0.5, 0.5);
         this.loadingIcon.hide();
         this.container.addToGrid(this.loadingIcon, 2);
+        this.monitoringDisabledLabel = new St.Label({
+            text: _('GPU monitoring is disabled.\nEnable it in GPU preferences.'),
+            styleClass: 'astra-monitor-menu-label-warning',
+        });
+        this.monitoringDisabledLabel.hide();
+        this.container.addToGrid(this.monitoringDisabledLabel, 2);
 
         const populateGpuSections = (GPUsList: GpuInfo[]) => {
             if(!this.container || this.sections.length > 0) return;
             if(!GPUsList || GPUsList.length === 0) {
                 if(this.noGPULabel) this.noGPULabel.text = _('No GPU found');
+                this.refreshMonitoringState();
                 return;
             }
 
@@ -218,6 +225,7 @@ export default class GpuMenuComponent {
                 const section = this.createSection(gpu);
                 this.sections.push(section);
             }
+            this.refreshMonitoringState();
         };
 
         const GPUsList = Utils.getGPUsList();
@@ -242,6 +250,7 @@ export default class GpuMenuComponent {
         } else {
             populateGpuSections(GPUsList);
         }
+        Config.connect(this, 'changed::gpu-data', this.refreshMonitoringState.bind(this));
     }
 
     private createSection(gpuInfo: GpuInfo): Section {
@@ -645,7 +654,7 @@ export default class GpuMenuComponent {
             if(monitored) {
                 activityButton.visible = true;
                 vramButton.visible = true;
-                topProcessesButton.visible = true;
+                topProcessesButton.visible = Config.get_boolean('gpu-menu-top-processes');
                 sensorsButton.visible = true;
 
                 infoLabel.styleClass = 'astra-monitor-menu-label';
@@ -659,8 +668,11 @@ export default class GpuMenuComponent {
                     infoLabel.styleClass = 'astra-monitor-menu-unmonitored-light';
                 else infoLabel.styleClass = 'astra-monitor-menu-unmonitored';
             }
+            if(!topProcessesButton.visible)
+                topProcessesPopup.close(AnimationUtils.getMenuParams(false));
         };
         updateMonitoredGPUs();
+        Config.connect(this, 'changed::gpu-menu-top-processes', updateMonitoredGPUs);
 
         Config.connect(this, 'changed::gpu-data', updateMonitoredGPUs);
         return section;
@@ -1852,11 +1864,10 @@ export default class GpuMenuComponent {
         if(!data) return;
 
         if(!this.shown) {
-            this.lastData = data;
             return;
         }
 
-        this.loadingIcon?.hide();
+        this.clear();
 
         for(const section of this.sections) {
             const gpuData: GenericGpuInfo | undefined = data.get(section.uuid);
@@ -1904,7 +1915,7 @@ export default class GpuMenuComponent {
                 if(section.activity.gfxBarLabel) section.activity.gfxBarLabel.text = _('N/A');
             }
 
-            if(this.topProcesses) {
+            if(this.topProcesses && Config.get_boolean('gpu-menu-top-processes')) {
                 const numProcesses = this.compact ? 3 : 5;
                 for(let index = 0; index < numProcesses; index++) {
                     const topProcess = this.topProcesses.get(section.uuid)?.[index];
@@ -1994,7 +2005,8 @@ export default class GpuMenuComponent {
             if(section.infoPopup) section.infoPopup.updateData(gpuData);
             if(section.activityPopup) section.activityPopup.updateData(gpuData);
             if(section.vramPopup) section.vramPopup.updateData(gpuData);
-            if(section.topProcessesPopup) section.topProcessesPopup.updateData(gpuData);
+            if(section.topProcessesPopup && Config.get_boolean('gpu-menu-top-processes'))
+                section.topProcessesPopup.updateData(gpuData);
             if(section.sensorsPopup) section.sensorsPopup.updateData(gpuData);
         }
     }
@@ -2043,21 +2055,38 @@ export default class GpuMenuComponent {
 
         Utils.gpuMonitor.listen(this, 'displays', this.updateDisplays.bind(this));
 
+        this.refreshMonitoringState();
+        this.scheduleDisplayUpdate();
+    }
+
+    private refreshMonitoringState() {
+        const monitored = Utils.getMonitoredGPUs();
+        if(this.monitoringDisabledLabel)
+            this.monitoringDisabledLabel.visible =
+                this.sections.length > 0 && monitored.length === 0;
+
+        if(!this.shown || monitored.length === 0) {
+            this.clear();
+            return;
+        }
+
         const gpuData = Utils.gpuMonitor.getCurrentValue('gpu') as Map<
             string,
             GenericGpuInfo
         > | null;
-        if(Utils.gpuMonitor.hasFreshValue('gpu', Utils.gpuMonitor.updateFrequencyMs * 3)) {
+        if(
+            Utils.gpuMonitor.hasFreshValue('gpu', Utils.gpuMonitor.updateFrequencyMs * 3) &&
+            gpuData &&
+            monitored.some(gpu => gpuData.has(Utils.getGpuUUID(gpu)))
+        ) {
             try {
-                this.update(gpuData ?? this.lastData);
+                this.update(gpuData);
             } catch(e: any) {
                 Utils.error('Error updating gpu menu', e);
             }
-        } else {
-            if(this.loadingIcon) MenuBase.startLoadingIcon(this.loadingIcon);
+        } else if(this.loadingIcon) {
+            MenuBase.startLoadingIcon(this.loadingIcon);
         }
-
-        this.scheduleDisplayUpdate();
     }
 
     private scheduleDisplayUpdate() {
@@ -2097,6 +2126,7 @@ export default class GpuMenuComponent {
         if(this.title) Config.clear(this.title);
         if(this.noGPULabel) Config.clear(this.noGPULabel);
         this.noGPULabel = undefined;
+        this.monitoringDisabledLabel = undefined;
 
         if(this.sections) {
             for(const section of this.sections) {

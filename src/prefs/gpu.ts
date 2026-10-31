@@ -477,11 +477,9 @@ export default class Gpu {
         const group = new Adw.PreferencesGroup({});
         menuPage.add(group);
 
-        PrefsUtils.addLabelRow(
-            {
-                title: _('Empty for now'),
-            },
-            '',
+        PrefsUtils.addSwitchRow(
+            { title: _('Show GPU Top Processes') },
+            'gpu-menu-top-processes',
             group
         );
 

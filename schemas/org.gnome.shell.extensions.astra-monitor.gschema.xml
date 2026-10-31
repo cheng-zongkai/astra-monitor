@@ -396,6 +396,11 @@
       <summary>GPU Header</summary>
       <description>Show the GPU header</description>
     </key>
+    <key name="gpu-menu-top-processes" type="b">
+      <default>false</default>
+      <summary>Show GPU Top Processes</summary>
+      <description>Show GPU processes in the GPU menu and the processor menu GPU section</description>
+    </key>
     <key name="gpu-update" type="d">
       <default>2.0</default>
       <summary>GPU Update Frequency</summary>
